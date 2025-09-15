@@ -12,6 +12,45 @@ dotenv.config();
 puppeteer.use(StealthPlugin());
 puppeteer.use(AnonymizeUA());
 
+const [_n, _s, argScript = 'download', argCity = '', argInvestment = ''] = process.argv;
+
+const ALLOWED_SCRIPTS = ['download', 'cities', 'investments'];
+
+if (!ALLOWED_SCRIPTS.includes(argScript)) {
+  console.error(`First argument (script) should be one of: ${ALLOWED_SCRIPTS.join(', ')}`);
+  process.exit(1);
+}
+
+const toNumber = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const result = parseFloat(value.toString().replace(/\s/g, '').replace(/,/g, '.'));
+
+  if (isNaN(result)) {
+    return null;
+  }
+
+  return result;
+}
+
+const toLevel = (value) => {
+  const sanitized = value.toString().replace(/\s/g, '').toLowerCase();
+
+  if (sanitized === 'parter') {
+    return 0;
+  }
+
+  const result = parseInt(sanitized);
+
+  if (isNaN(result)) {
+    return null;
+  }
+
+  return result;
+}
+
 const { JSDOM } = jsdom;
 
 const DELAYS = {
@@ -80,10 +119,18 @@ const getCities = async () => {
   const dom = new JSDOM(html);
   const doc = dom.window.document;
 
-  return Array.from(doc.querySelectorAll('.m-Header__version-city ul li a')).reduce((result, el) => ({
+  const cities = Array.from(doc.querySelectorAll('.m-Header__version-city ul li a')).reduce((result, el) => ({
     ...result,
     [el.title]: `${el.href}/lista-inwestycji`
   }), initialCities);
+
+  if (argCity) {
+    const city = cities[argCity];
+
+    return { [argCity]: city };
+  }
+
+  return cities;
 }
 
 const startBrowser = async () => {
@@ -149,7 +196,7 @@ const save = async (client, inv, ts) => {
       if (inv.flats) {
         for (let flt of inv.flats) {
           const query = `INSERT INTO flats VALUES (DEFAULT, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18);`;
-          const params = ['domd', inv.city, inv.name, inv.address, flt.ident, flt.area, flt.rooms, flt.level, flt.building, flt.flat, flt.dueDate, flt.priceM2, flt.priceM2Discount, flt.priceFull, flt.priceFullDiscount, flt.isPromo, ts, flt.url];
+          const params = ['domd', inv.city, inv.name, inv.address, flt.ident, toNumber(flt.area), flt.rooms, toLevel(flt.level), flt.building, flt.flat, flt.dueDate, toNumber(flt.priceM2), toNumber(flt.priceM2Discount), toNumber(flt.priceFull), toNumber(flt.priceFullDiscount), flt.isPromo, ts, flt.url];
           await client.query(query, params);
         }
       }
@@ -157,7 +204,7 @@ const save = async (client, inv, ts) => {
       if (inv.garages) {
         for (let grg of inv.garages) {
           const query = `INSERT INTO garages VALUES (DEFAULT, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`;
-          const params = ['domd', inv.city, inv.name, inv.address, grg.ident, grg.kind, grg.level, grg.price, null, null, ts, null];
+          const params = ['domd', inv.city, inv.name, inv.address, grg.ident, grg.kind, toLevel(grg.level), toNumber(grg.price), null, null, ts, null];
           await client.query(query, params);
         }
       }
@@ -165,7 +212,7 @@ const save = async (client, inv, ts) => {
       if (inv.storages) {
         for (let stg of inv.storages) {
           const query = `INSERT INTO storages VALUES (DEFAULT, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`;
-          const params = ['domd', inv.city, inv.name, inv.address, stg.ident, stg.kind, stg.level, stg.price, null, null, ts, null];
+          const params = ['domd', inv.city, inv.name, inv.address, stg.ident, stg.kind, toLevel(stg.level), toNumber(stg.price), null, null, ts, null];
           await client.query(query, params);
         }
       }
@@ -177,25 +224,28 @@ const save = async (client, inv, ts) => {
   } else {
     if (inv.flats) {
       for (let flt of inv.flats) {
+        const header = ['company', 'city', 'investment', 'address', 'ident', 'area', 'rooms', 'level', 'building', 'apartment', 'due_date', 'price_m2', 'price_m2_discounted', 'price_full', 'price_full_discounted', 'is_promo', 'ts', 'url'];
         const params = ['domd', inv.city, inv.name, inv.address, flt.ident, flt.area, flt.rooms, flt.level, flt.building, flt.flat, flt.dueDate, flt.priceM2, flt.priceM2Discount, flt.priceFull, flt.priceFullDiscount, flt.isPromo, ts, flt.url];
   
-        fs.appendFileSync(flatsFile, params.join(';') + '\n', { encoding: 'utf-8' });
+        fs.appendFileSync(flatsFile, header.join(';') + '\n' + params.join(';') + '\n', { encoding: 'utf-8' });
       }
     }
 
     if (inv.garages) {
       for (let grg of inv.garages) {
+        const header = ['company', 'city', 'investment', 'address', 'ident', 'kind', 'level', 'price', 'price_discounted', 'is_promo', 'ts', 'area'];
         const params = ['domd', inv.city, inv.name, inv.address, grg.ident, grg.kind, grg.level, grg.price, null, null, ts, null];
   
-        fs.appendFileSync(garagesFile, params.join(';') + '\n', { encoding: 'utf-8' });
+        fs.appendFileSync(garagesFile, header.join(';') + '\n' + params.join(';') + '\n', { encoding: 'utf-8' });
       }
     }
 
     if (inv.storages) {
       for (let stg of inv.storages) {
+        const header = ['company', 'city', 'investment', 'address', 'ident', 'kind', 'level', 'price', 'price_discounted', 'is_promo', 'ts', 'area'];
         const params = ['domd', inv.city, inv.name, inv.address, stg.ident, stg.kind, stg.level, stg.price, null, null, ts, null];
   
-        fs.appendFileSync(storagesFile, params.join(';') + '\n', { encoding: 'utf-8' });
+        fs.appendFileSync(storagesFile, header.join(';') + '\n' + params.join(';') + '\n', { encoding: 'utf-8' });
       }
     }
   }
@@ -218,7 +268,11 @@ const getInvestments = async (page) => {
   await page.evaluate(() => {
     try {
       const result = Array.from(document.querySelectorAll('.c-BoxInvestments > a.c-BoxInvestments__container')).map((el) => ({
-        name: el.querySelector('h3').textContent.trim(),
+        name: (() => {
+          const parts = URL.parse(el.href).pathname.split('/');
+          return parts[parts.length - 1];
+        })(),
+        title: el.querySelector('h3').textContent.trim(),
         address: el.querySelector('.c-BoxInvestments__details').textContent.trim(),
         url: el.href
       })).reduce((result, item) => [...result, ...(result.find(({ name }) => name === item.name) ? [] : [item])], [])
@@ -230,7 +284,13 @@ const getInvestments = async (page) => {
     }
   });
 
-  return await getMessage('investments');
+  const investments = await getMessage('investments');
+
+  if (argInvestment) {
+    return investments.filter((inv) => inv.name.toLowerCase().includes(argInvestment.toLowerCase()));
+  }
+
+  return investments;
 }
 
 const getGarages = async (browser, url) => {
@@ -366,11 +426,19 @@ const parseInvestment = async (browser, inv, invCounter) => {
     return;
   }
 
-  await page.evaluate(() => {
-    document.querySelector('.c-BoxOtherFlats__button').click();
+  const hasMore = await page.evaluate(() => {
+    const el = document.querySelector('.c-BoxOtherFlats__button')
+    
+    if (el) {
+      el.click();
+    }
+
+    return Boolean(el);
   });
 
-  await waitForPage(page);
+  if (hasMore) {
+    await waitForPage(page);
+  }
 
   const invSearchUrl = await page.url();
   const parsedUrl = URL.parse(invSearchUrl);
@@ -412,6 +480,11 @@ const parseCity = async (client, { city, url, ts }, cityCounter) => {
   for (let inv of investments) {
     invCounter++;
 
+    if (argScript === 'investments') {
+      console.log(`${inv.name} (${inv.title}) [${inv.url}]`);
+      continue;
+    }
+
     const browser = await startBrowser();
     
     const data = await parseInvestment(browser, inv, `${invCounter}/${investments.length}`);
@@ -437,6 +510,10 @@ const createFiles = () => {
 }
 
 const getClient = async () => {
+  if (argScript !== 'download') {
+    return null;
+  }
+
   if (process.env.SAVE_TO_FILE) {
     createFiles();
     return null;
@@ -466,6 +543,11 @@ const main = async () => {
   for (let city in cities) {
     cityCounter++;
     const url = cities[city];
+
+    if (argScript === 'cities') {
+      console.log(`${city} [${url}]`);
+      continue;
+    }
 
     if (state.shouldTerminate) {
       break;
